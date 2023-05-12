@@ -21,8 +21,11 @@ if __name__ == "__main__":
     
     RUN EXAMPLE:
         
-        python3 abbreviations/1_bert_token_classifier.py -t data/sbl-51abbr.tok.train.json -d data/sbl-51abbr.tok.dev.json --bert_model 'EMBEDDIA/sloberta' \
-         --save_model_dir saved_models/BERT_ABBR_876972 --epochs 5 --batch_size 32 --info_every 10 --seed_val 876972
+        python3 bert_token_classifier.py -t data/sbl-51abbr.tok.train.json -d data/sbl-51abbr.tok.dev.json --bert_model 'EMBEDDIA/sloberta' \
+         --save_model_dir saved_models/BERT_ABBR_SL_876972 --epochs 1 --batch_size 32 --info_every 10 --seed_val 876972
+        
+        python3 bert_token_classifier.py -t data/outputs/german/apis-de-abbr.tok.train.json --bert_model 'bert-base-german-cased' \
+         --save_model_dir saved_models/BERT_ABBR_DE_876972 --epochs 1 --batch_size 16 --info_every 10 --seed_val 876972
 
     """
 

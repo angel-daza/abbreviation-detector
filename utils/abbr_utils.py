@@ -36,6 +36,8 @@ class BestFitPolicy(Enum):
     JACCARD_N2 = 5
 
 
+#### Classes for the Slovenian Corpus
+
 class ConllToken:
     def __init__(self, row: str, sent_id: str = "[UNK]", tok_id_offset: int = 0, splitter='\t', misc_tags_processor: Callable = lambda x: x) -> None:
         self.splitter = splitter
@@ -54,7 +56,6 @@ class ConllToken:
     
     def asconll(self):
         return self.raw
-
 
     def asdict(self):
         return {'sent_id': self.sent_id, 'index': self.index, 'text': self.text, 'lemma': self.lemma, 'pos': self.pos,
@@ -168,6 +169,131 @@ class AnnotatedSentence:
         self.get_mapping()
 
 
+#### Classes for the German Corpus
+
+class ApisToken:
+    def __init__(self, row: str, doc_id: str = "[UNK]", sent_id: str = "[UNK]", tok_id_offset: int = 0, splitter='\t') -> None:
+        self.raw = row.strip()
+        fields = self.raw.split(splitter)
+        self.doc_id = doc_id
+        self.sent_id = sent_id
+        self.token_id = int(fields[0]) + tok_id_offset
+        self.text = fields[1]
+        misc_tags = self.misc_tags_processor(fields[2])
+        self.is_abbr = misc_tags[0]
+        self.expansion = misc_tags[1]
+        self.abbr_is_person_name = misc_tags[2]
+        self.space_after = misc_tags[3]
+    
+    def misc_tags_processor(self, misc_tag: str):
+        # EXPAN=B-studierte|PersonName=No|SpaceAfter=No
+        is_expan, expan, is_person_name, space_after = False, None, False, True
+        for elem in misc_tag.split('|'):
+            key, val = elem.split('=')
+            if key == 'EXPAN':
+                expan = val
+                if val != 'O':
+                    is_expan = True
+            elif key == 'PersonName' and val == 'Yes':
+                is_person_name = True
+            elif key == 'Spaceafter' and val == 'No':
+                space_after = False
+        return is_expan, expan, is_person_name, space_after
+
+    def asdict(self):
+        return {'doc_id': self.doc_id,'sent_id': self.sent_id, 'index': self.token_id, 'text': self.text,
+                'abbr': self.text, 'expan': self.expansion, 'space_after': self.space_after}
+
+@dataclass
+class AnnotatedApisSentence:
+    doc_id: str
+    sent_id: str
+    source_text: str
+    mode: str = 'abbr2exp'
+    tokens: List[ApisToken] = None
+    mapping: List = None
+
+    def get_mapping(self) -> None:
+        """ 
+            Gets the Abbr -> Exp mapping, depending on the mode...
+        """
+        mapping = []
+        for tok in self.tokens:
+            if tok.expansion.startswith('B-'):
+                my_exp = tok.expansion[2:]
+                mapping.append((tok.token_id, tok.text, my_exp))
+        self.mapping = mapping
+
+
+    def get_labeled_sequences(self, use_naive_tokens: bool) -> Tuple[List, List, List]:
+        """ Compute the appropriate label sequence for the abbreviated and expanded sequences.
+            It can process both directions abbr2exp and exp2abbr) depending on the sentence.mode
+
+        Args:
+            sentence (AnnotatedSentence): The sentence object containing annotated information
+            use_naive_tokens (bool): If True, then we ignore the conll tokens and split the text by space (as in real world scenario)
+
+        Returns:
+            Tuple[List, List, List]: the abbreviated sentence, the expanded sentence, the sequence of labels always in this order. 
+        """
+        tokens, labels = [], []
+        # The 'easy case' is when we have tokens available from the Conll file
+        if use_naive_tokens == False:
+            for tok in self.tokens:
+                if tok.expansion == 'O':
+                    labels.append('O')
+                    tokens.append(tok.text)
+                elif tok.expansion.startswith('B-'):
+                    labels.append('B-ABBR')
+                    tokens.append(tok.expansion[2:])
+                elif tok.expansion.startswith('I-'):
+                    labels.append('I-ABBR')
+                    tokens.append(tok.expansion[2:])
+            assert len(labels) == len(self.tokens) == len(tokens)
+            source_tokens = [tok.text for tok in self.tokens]
+            target_tokens = tokens
+        # The 'common case' is when we have only raw text available and tokens are obtained using text.split() on the raw text
+        elif use_naive_tokens == True and self.mapping is not None:
+            naive_source_tokens = self.source_text.split()
+            naive_target_tokens = []
+            if len(self.mapping) == 0: return naive_source_tokens, naive_source_tokens, ['O' for t in naive_source_tokens]
+            if self.mode == 'abbr2exp':
+                keywords = deque([abbr for ix,abbr,exp in self.mapping])
+                targets = [exp for ix,abbr,exp in self.mapping]
+            else:
+                keywords = deque([exp for ix,exp,abbr in self.mapping])
+                targets = [abbr for ix,exp,abbr in self.mapping]
+            
+            if len(keywords) == 0: return naive_source_tokens, naive_source_tokens, ['O' for t in naive_source_tokens]
+
+            substitute_ix = 0
+            for tok in naive_source_tokens:
+                clean_tok = re.sub(r'[^\w\s]',"",tok)
+                try:
+                    if clean_tok == keywords[0].strip('.'):
+                        labels.append('B-ABBR')
+                        keywords.popleft()
+                        naive_target_tokens.append(targets[substitute_ix])
+                        substitute_ix += 1
+                    else:
+                        labels.append('O')
+                        naive_target_tokens.append(tok)
+                except:
+                    labels.append('O') # There are no more keywords so the rest is 'O' by default...
+                    naive_target_tokens.append(tok)
+                
+            assert len(labels) == len(naive_source_tokens) == len(naive_target_tokens)
+            source_tokens = naive_source_tokens
+            target_tokens = naive_target_tokens
+        else:
+            raise Exception("There is no valid token <--> label mapping assigned!")
+        
+        # Always Return Sentence_with_abbreviations, Sentence_with_expansions, Labels in this order
+        return source_tokens, target_tokens, labels
+
+
+
+
 def clean_token(token:str)->str:
     return re.sub(r"[^\w\s]", "", token)
 
@@ -218,6 +344,32 @@ def read_slovene_conll(filepath:str, mode:str) -> List[AnnotatedSentence]:
     return sentences
 
 
+def read_apis_conll(filepath:str) -> List[AnnotatedApisSentence]:
+    """[summary]
+    """    
+    tokens, sentences, apis_docs_ids = [], [], set()
+    buffer = []
+    with open(filepath) as f:
+        for line in f.readlines():
+            if line.startswith('# doc_id ='):
+                doc_id = line[10:].rstrip('\n').lstrip()
+                apis_docs_ids.add(doc_id)
+            elif line.startswith('# sent_id = '):
+                sent_id = line[12:].rstrip('\n').lstrip()
+            elif line.startswith('# text = '):
+                text = line[9:].rstrip('\n').lstrip()
+            elif line.startswith('# '):
+                pass
+            elif len(line) > 1:
+                apis_tok = ApisToken(line, doc_id, sent_id)
+                buffer.append(apis_tok)
+                clean_expansion = 'O' if not apis_tok.is_abbr else apis_tok.expansion[2:]
+                tokens.append({'doc_id': apis_tok.doc_id, 'sent_id': apis_tok.sent_id, 'tok_id': apis_tok.token_id, 'text': apis_tok.text, 'expansion': clean_expansion, 'is_person': apis_tok.abbr_is_person_name})
+            else:
+                sentences.append(AnnotatedApisSentence(doc_id, sent_id, text, tokens=buffer))
+                buffer = []
+
+    return tokens, sentences, apis_docs_ids
 
 
 

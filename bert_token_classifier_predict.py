@@ -13,8 +13,11 @@ import utils.bert_utils as utils
 if __name__ == "__main__":
     """
     RUN EXAMPLE:
-        python3 bert_token_classifier_predict.py -m saved_models/BERT_ABBR_876972 --bert_model 'EMBEDDIA/sloberta' \
-            --epoch 1 --test_path data/sbl-51abbr.tok.test.json --gold_labels True
+        python3 bert_token_classifier_predict.py -m saved_models/BERT_ABBR_SL_876972 --bert_model 'EMBEDDIA/sloberta' \
+            --epoch 1 --test_path data/outputs/slovenian/sbl-51abbr.tok.test.json --gold_labels True
+        
+        python3 bert_token_classifier_predict.py -m saved_models/BERT_ABBR_DE_876972 --bert_model 'bert-base-german-cased' \
+            --epoch 1 --test_path data/outputs/german/apis-de-abbr.tok.test.json --gold_labels True
  
     """
 
